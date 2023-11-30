@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 """
-`adafruit_shtc3`
+`shtc3`
 ================================================================================
 
 A helper library for using the Sensirion SHTC3 Humidity and Temperature Sensor
@@ -19,37 +19,16 @@ Implementation Notes
 * `Adafruit SHTC3 Temperature & Humidity Sensor
   <https://www.adafruit.com/product/4636>`_ (Product ID: 4636)
 
-**Software and Dependencies:**
-
-* Adafruit CircuitPython firmware for the supported boards:
-  https://circuitpython.org/downloads
-
-* Adafruit's Bus Device library:
-  https://github.com/adafruit/Adafruit_CircuitPython_BusDevice
-
-* Adafruit's Register library:
-  https://github.com/adafruit/Adafruit_CircuitPython_Register
-
 """
 
 # imports
 
 __version__ = "0.0.0+auto.0"
-__repo__ = "https://github.com/adafruit/Adafruit_CircuitPython_SHTC3.git"
+__repo__ = "https://github.com/submer-crypto/MicroPython-SHTC3.git"
 
-from struct import unpack_from
 import time
-from adafruit_bus_device import i2c_device
-
-try:
-    from typing import Tuple
-    from busio import I2C
-except ImportError:
-    pass
-
-# include "Arduino.h"
-# include <Adafruit_I2CDevice.h>
-# include <Adafruit_Sensor.h>
+from struct import unpack_from
+from machine import I2C
 
 _SHTC3_DEFAULT_ADDR = 0x70  # SHTC3 I2C Address
 _SHTC3_NORMAL_MEAS_TFIRST_STRETCH = (
@@ -89,7 +68,7 @@ class SHTC3:
     """
     A driver for the SHTC3 temperature and humidity sensor.
 
-    :param ~busio.I2C i2c_bus: The I2C bus the SHTC3 is connected to.
+    :param ~machine.I2C i2c: The I2C bus the SHTC3 is connected to.
 
     **Quickstart: Importing and using the SHTC3 temperature and humidity sensor**
 
@@ -98,15 +77,15 @@ class SHTC3:
 
         .. code-block:: python
 
-            import board
-            import adafruit_shtc3
+            import shtc3
+            from machine import I2C
 
-        Once this is done, you can define your `board.I2C` object and define your sensor
+        Once this is done, you can define your `I2C` object and define your sensor
 
         .. code-block:: python
 
-            i2c = board.I2C()   # uses board.SCL and board.SDA
-            sht = adafruit_shtc3.SHTC3(i2c)
+            i2c = I2C(0)   # uses default SCL and SDA
+            sht = shtc3.SHTC3(i2c)
 
         Now you have access to the temperature and humidity using the :attr:`measurements`.
         it will return a tuple with the :attr:`temperature` and :attr:`relative_humidity`
@@ -118,10 +97,17 @@ class SHTC3:
 
     """
 
-    def __init__(self, i2c_bus: I2C) -> None:
-        self.i2c_device = i2c_device.I2CDevice(i2c_bus, _SHTC3_DEFAULT_ADDR)
+    # Class-level buffer for reading and writing data with the sensor.
+    # This reduces memory allocations but means the code is not re-entrant or
+    # thread safe!
+    _BUFFER_16 = bytearray(2)
+    _BUFFER_24 = bytearray(3)
+    _BUFFER_48 = memoryview(bytearray(6))
 
-        self._buffer = bytearray(6)
+    def __init__(self, i2c: I2C, address=_SHTC3_DEFAULT_ADDR) -> None:
+        self.i2c = i2c
+        self.address = address
+
         self.low_power = False
         self.sleeping = False
         self.reset()
@@ -131,20 +117,18 @@ class SHTC3:
 
     def _write_command(self, command: int) -> None:
         """helper function to write a command to the i2c device"""
-        self._buffer[0] = command >> 8
-        self._buffer[1] = command & 0xFF
+        self._BUFFER_16[0] = command >> 8
+        self._BUFFER_16[1] = command & 0xFF
 
-        with self.i2c_device as i2c:
-            i2c.write(self._buffer, start=0, end=2)
+        self.i2c.writeto(self.address, self._BUFFER_16)
 
-    def _get_chip_id(self) -> int:  #   readCommand(SHTC3_READID, data, 3);
+    def _get_chip_id(self) -> int:  # readCommand(SHTC3_READID, data, 3);
         """Determines the chip id of the sensor"""
         self._write_command(_SHTC3_READID)
         time.sleep(0.001)
-        with self.i2c_device as i2c:
-            i2c.readinto(self._buffer)
+        self.i2c.readfrom_into(self.address, self._BUFFER_24)
 
-        return unpack_from(">H", self._buffer)[0] & 0x083F
+        return unpack_from(">H", self._BUFFER_24)[0] & 0x083F
 
     def reset(self) -> None:
         """Perform a soft reset of the sensor, resetting all settings to their power-on defaults"""
@@ -193,7 +177,7 @@ class SHTC3:
         return self.measurements[0]
 
     @property
-    def measurements(self) -> Tuple[float, float]:
+    def measurements(self) -> (float, float):
         """both `temperature` and `relative_humidity`, read simultaneously"""
 
         self.sleeping = False
@@ -209,14 +193,13 @@ class SHTC3:
 
         # self._buffer = bytearray(6)
         # read the measured data into our buffer
-        with self.i2c_device as i2c:
-            i2c.readinto(self._buffer)
+        self.i2c.readfrom_into(self.address, self._BUFFER_48)
 
         # separate the read data
-        temp_data = self._buffer[0:2]
-        temp_crc = self._buffer[2]
-        humidity_data = self._buffer[3:5]
-        humidity_crc = self._buffer[5]
+        temp_data = self._BUFFER_48[0:2]
+        temp_crc = self._BUFFER_48[2]
+        humidity_data = self._BUFFER_48[3:5]
+        humidity_crc = self._BUFFER_48[5]
 
         # check CRC of bytes
         if temp_crc != self._crc8(temp_data) or humidity_crc != self._crc8(
@@ -239,7 +222,7 @@ class SHTC3:
         self.sleeping = True
         return (temperature, humidity)
 
-    ## CRC-8 formula from page 14 of SHTC3 datasheet
+    # CRC-8 formula from page 14 of SHTC3 datasheet
     # https://media.digikey.com/pdf/Data%20Sheets/Sensirion%20PDFs/HT_DS_SHTC3_D1.pdf
     # Test data [0xBE, 0xEF] should yield 0x92
 

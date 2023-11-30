@@ -2,16 +2,15 @@
 #
 # SPDX-License-Identifier: MIT
 import time
-import board
-import adafruit_shtc3
+import machine
+import shtc3
 
-i2c = board.I2C()  # uses board.SCL and board.SDA
-# i2c = board.STEMMA_I2C()  # For using the built-in STEMMA QT connector on a microcontroller
-sht = adafruit_shtc3.SHTC3(i2c)
+i2c = machine.I2C(0)  # uses default SCL and SDA
+sht = shtc3.SHTC3(i2c)
 
 while True:
     temperature, relative_humidity = sht.measurements
-    print("Temperature: %0.1f C" % temperature)
-    print("Humidity: %0.1f %%" % relative_humidity)
+    print("Temperature: %0.1f C" % temperature) # pylint: disable=consider-using-f-string
+    print("Humidity: %0.1f %%" % relative_humidity) # pylint: disable=consider-using-f-string
     print("")
     time.sleep(1)
