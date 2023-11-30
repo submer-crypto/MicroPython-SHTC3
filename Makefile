@@ -19,7 +19,7 @@ requirements-freeze:
 	$(PYTHON) -m pip freeze > requirements.txt
 
 lint:
-	$(PYTHON) -m pylint examples shtc3.py
+	$(PYTHON) -m pylint examples shtc3
 
 $(ENVIRONMENT):
 	$(PYTHON) -m venv $(ENVIRONMENT)
